@@ -20,7 +20,7 @@
   },
   "dependencies": {
     "ipaddr.js": "^2.2.0",
-    "jsdom": "^29.0.0"
+    "jsdom": "^26.1.0"
   },
   "homepage": "https://github.com/xaoxuu/"
 }
