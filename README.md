@@ -26,6 +26,8 @@ api: https://your-domain/api/v1?url=${href}
 > 把示例中的最后一个修改为自己网站的 host 部分。
 > 逗号分隔，多个 host 之间用英文逗号隔开。
 
+> Node.js 版本由 package.json 的 `engines` 控制（当前为 24.x），部署时 Vercel 会自动使用。
+
 ### 可选环境变量
 
 | Key | 默认值 | 说明 |
