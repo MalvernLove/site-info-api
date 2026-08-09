@@ -1,6 +1,7 @@
 const http = require("http");
 const https = require("https");
 const dns = require("dns");
+const net = require("net");
 const ipaddr = require("ipaddr.js");
 const { JSDOM } = require("jsdom");
 
@@ -141,7 +142,7 @@ function checkHostSafe(hostname, callback) {
   }
   if (privateAllowed()) return callback(null);
   const host = hostname.replace(/^\[|\]$/g, "");
-  if (isPrivateAddress(host)) {
+  if (net.isIP(host) && isPrivateAddress(host)) {
     return callback(new ApiError(403, "blocked address"));
   }
   dns.promises
@@ -361,7 +362,7 @@ function sendError(res, statusCode, payload) {
   res.send(payload);
 }
 
-module.exports = function handler(req, res) {
+function handler(req, res) {
   const referer = req.headers.referer || "";
   if (!isAllowedReferer(referer)) {
     console.error("referer invalid:", referer);
@@ -400,4 +401,7 @@ module.exports = function handler(req, res) {
     }
     sendSuccess(res, data);
   });
-};
+}
+
+module.exports = handler;
+module.exports.checkHostSafe = checkHostSafe;

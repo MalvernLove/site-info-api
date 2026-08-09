@@ -1,6 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert");
 const http = require("http");
+const dns = require("dns");
 
 process.env.HOSTS = "localhost";
 process.env.ALLOW_PRIVATE_HOSTS = "1"; // tests run against 127.0.0.1
@@ -8,6 +9,7 @@ process.env.ALLOWED_PORTS = "*"; // tests run on an ephemeral port
 process.env.CACHE_TTL_MS = "0"; // disable in-memory cache between calls
 
 const handler = require("../api/v1/index.js");
+const { checkHostSafe } = handler;
 
 function callHandler({ referer, url }) {
   return new Promise((resolve) => {
@@ -162,6 +164,25 @@ test("blocks private addresses by default", async () => {
     assert.equal(r.statusCode, 403);
     assert.deepEqual(r.payload, {});
   } finally {
+    process.env.ALLOW_PRIVATE_HOSTS = "1";
+  }
+});
+
+test("does not treat domain names as literal private addresses", (t, done) => {
+  process.env.ALLOW_PRIVATE_HOSTS = "0";
+  const originalLookup = dns.promises.lookup;
+  dns.promises.lookup = async () => [{ address: "93.184.216.34", family: 4 }];
+  try {
+    checkHostSafe("127.0.0.1", (err) => {
+      assert.ok(err, "literal loopback should be blocked");
+      assert.equal(err.statusCode, 403);
+      checkHostSafe("example.com", (err2) => {
+        assert.ifError(err2, "public domain should pass after DNS check");
+        done();
+      });
+    });
+  } finally {
+    dns.promises.lookup = originalLookup;
     process.env.ALLOW_PRIVATE_HOSTS = "1";
   }
 });
