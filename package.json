@@ -1,10 +1,10 @@
 {
   "name": "site-info-api",
-  "version": "1.0.0",
-  "description": "",
+  "version": "2.0.0",
+  "description": "Fetch site title, description and icon by URL, built for Vercel.",
   "main": "package.json",
   "scripts": {
-    "test": "echo test"
+    "test": "node --test"
   },
   "repository": {
     "type": "git",
@@ -15,8 +15,12 @@
   ],
   "author": "[@xaoxuu](https://github.com/xaoxuu/)",
   "license": "MIT",
+  "engines": {
+    "node": "^20.19.0 || ^22.12.0 || >=24.0.0"
+  },
   "dependencies": {
-    "jsdom": "^20.0.2"
+    "ipaddr.js": "^2.2.0",
+    "jsdom": "^29.0.0"
   },
   "homepage": "https://github.com/xaoxuu/"
 }
