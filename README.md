@@ -49,3 +49,15 @@ api: https://your-domain/api/v1?url=${href}
 - 请求 5 秒超时，响应体超过 1 MiB 会中断。
 - 成功响应通过 `Vercel-CDN-Cache-Control` 缓存 7 天；错误响应返回对应的 4xx/5xx 状态码且不缓存。
 - Referrer 校验失败返回 403；默认拒绝空 Referrer，如需放行设置 `ALLOW_EMPTY_REFERER=1`。
+
+## 图标解析
+
+- `icon` 返回默认图标的绝对 URL，按以下顺序选择首个有效地址：`apple-touch-icon` → `apple-touch-icon-precomposed` → `icon`（含 `shortcut icon`）→ `mask-icon` → `og:image` → `og:image:url` → `twitter:image` → `twitter:image:src` → `msapplication-TileImage`。
+- 同类候选按页面顺序尝试，空地址、纯片段、非法 URL、非 HTTP(S) 地址及包含账号密码的地址会跳过。`rel` 按空白分词匹配，不区分大小写；元数据支持 `property` 和 `name`。
+- `favicon`：已声明且 URL 路径文件名为 `favicon.ico`（忽略查询参数）→ `32x32` → `48x48` → `16x16` → `180x180` → `192x192` → 链接兜底。
+- `appicon`：`192x192` → `180x180` → `512x512` → `48x48` → `32x32` → `16x16` → 链接兜底。
+- `favicon` 和 `appicon` 的链接兜底优先选择页面中第一个普通 `icon` 或 Apple 图标，再选择其他 `rel` 包含 `icon` 的链接。只要存在有效的非遮罩图标，`mask-icon` 就不参与文件名、尺寸或链接选择；仅在没有其他图标时使用。
+- 图标集合仅内部使用，不返回 `icons`。尺寸匹配使用声明的 `sizes`，支持空白分隔的多个尺寸及大写 `X`；不猜测实际尺寸，同优先级按页面顺序选择。`any` 或未声明尺寸的图标可通过最后的链接兜底选中。
+- 相对路径使用重定向后的页面 URL 和有效的 `<base href>` 解析。
+- 分享预览图只用于 `icon` 兜底，不用于 `favicon` 和 `appicon`。没有有效候选时省略对应字段。
+- 当前仅解析 HTML 声明，不下载图标检查可访问性，不读取 manifest，也不将未声明的 `/favicon.ico` 当作已找到的图标。

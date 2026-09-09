@@ -74,6 +74,9 @@ function startServer() {
       },
     };
     const server = http.createServer((req, res) => {
+      if (req.url.startsWith("/icon-case?")) {
+        return res.end(new URL(req.url, "http://localhost").searchParams.get("html"));
+      }
       const route = routes[req.url];
       if (!route) {
         res.statusCode = 404;
@@ -210,4 +213,106 @@ test("times out slow upstreams", async () => {
   } finally {
     delete process.env.REQUEST_TIMEOUT_MS;
   }
+});
+
+async function parseIcons(html) {
+  const r = await callHandler({
+    referer: "https://localhost/x",
+    url: baseUrl + "/icon-case?html=" + encodeURIComponent(html),
+  });
+  assert.equal(r.statusCode, 200);
+  return r.payload;
+}
+
+test("skips invalid candidates and retains small icons and declared metadata", async () => {
+  const r = await parseIcons(`
+    <link rel="apple-touch-icon" href=" ">
+    <link rel="apple-touch-icon" href="data:image/png;base64,AA">
+    <link rel="icon" href="javascript:alert(1)">
+    <link rel="icon" href="http://[">
+    <link rel="ICON shortcut" href="/small.png" sizes="16x16" type="image/png">
+    <link rel="apple-touch-icon" href="/touch.png" sizes="180x180">
+    <link rel="ICON shortcut" href="/small.png" sizes="16x16" type="image/png">
+    <link rel="icon" href="/vector.svg" sizes="any" media="(prefers-color-scheme: dark)">
+    <meta property="og:image" content="/preview.png">
+  `);
+  assert.equal(r.icon, baseUrl + "/touch.png");
+  assert.equal(r.favicon, baseUrl + "/small.png");
+  assert.equal(r.appicon, baseUrl + "/touch.png");
+  assert.equal(r.icons, undefined);
+});
+
+test("resolves base URLs and supports legacy touch and mask icons", async () => {
+  const r = await parseIcons(`<base href="/assets/">
+    <link rel="mask-icon" href="mask.svg">
+    <link rel="apple-touch-icon-precomposed" href="touch.png">`);
+  assert.equal(r.icon, baseUrl + "/assets/touch.png");
+  assert.equal(r.favicon, baseUrl + "/assets/touch.png");
+  assert.equal(r.appicon, baseUrl + "/assets/touch.png");
+});
+
+test("tries subsequent metadata candidates and supports Twitter name attributes", async () => {
+  const r = await parseIcons(`<link rel="icon" href="#">
+    <meta property="og:image" content="">
+    <meta property="og:image" content="ftp://example.com/image.png">
+    <meta name="twitter:image" content="https://user:pass@example.com/image.png">
+    <meta name="twitter:image" content="//example.com/social.png">`);
+  assert.equal(r.icon, "http://example.com/social.png");
+  assert.equal(r.icons, undefined);
+});
+
+test("does not mistake unrelated rel values for icons or invent a favicon", async () => {
+  const r = await parseIcons(`<title>No icon</title>
+    <link rel="stylesheet" href="/wrong.png">
+    <link rel="icon" href="DATA:image/png;base64,AA">`);
+  assert.equal(r.icon, undefined);
+  assert.equal(r.icons, undefined);
+});
+
+for (const [field, ranking] of Object.entries({
+  favicon: ["favicon.ico", "32x32", "48x48", "16x16", "180x180", "192x192"],
+  appicon: ["192x192", "180x180", "512x512", "48x48", "32x32", "16x16"],
+})) {
+  test(`${field} follows every priority tier and falls back in document order`, async () => {
+    for (let i = 0; i <= ranking.length; i++) {
+      const links = ranking.slice(i).reverse().map((size) =>
+        size === "favicon.ico"
+          ? '<link rel="icon" href="/assets/favicon.ico?v=1">'
+          : `<link rel="icon" sizes="${size}" href="/${size}.png">`).join("");
+      const r = await parseIcons('<link rel="custom-icon" href="/first.svg">' + links);
+      const expected = i === ranking.length ? "/first.svg"
+        : ranking[i] === "favicon.ico" ? "/assets/favicon.ico?v=1" : `/${ranking[i]}.png`;
+      assert.equal(r[field], baseUrl + expected);
+      assert.equal(r.icons, undefined);
+    }
+  });
+}
+
+test("matches multiple sizes case-insensitively and keeps first candidate on ties", async () => {
+  const r = await parseIcons(`<link rel="icon" sizes="16x16 32X32 192x192" href="/multi.ico">
+    <link rel="icon" sizes="32x32 192x192" href="/later.png">`);
+  assert.equal(r.favicon, baseUrl + "/multi.ico");
+  assert.equal(r.appicon, baseUrl + "/multi.ico");
+});
+
+test("social images do not populate favicon or appicon", async () => {
+  const r = await parseIcons('<meta property="og:image" content="/social.png">');
+  assert.equal(r.icon, baseUrl + "/social.png");
+  assert.equal(r.favicon, undefined);
+  assert.equal(r.appicon, undefined);
+  assert.equal(r.icons, undefined);
+});
+
+test("prefers ordinary icons over masks even when masks match filename and sizes", async () => {
+  const r = await parseIcons(`<link rel="mask-icon" href="/favicon.ico" sizes="32x32 192x192">
+    <link rel="custom-icon" href="/custom.png">
+    <link rel="icon" href="/ordinary.svg" sizes="any">`);
+  assert.equal(r.favicon, baseUrl + "/ordinary.svg");
+  assert.equal(r.appicon, baseUrl + "/ordinary.svg");
+});
+
+test("uses a mask icon as a last resort", async () => {
+  const r = await parseIcons('<link rel="mask-icon" href="/mask.svg">');
+  assert.equal(r.favicon, baseUrl + "/mask.svg");
+  assert.equal(r.appicon, baseUrl + "/mask.svg");
 });

@@ -273,11 +273,80 @@ function main(url, redirectsLeft, deadline, callback) {
   });
 }
 
+// Only return usable web URLs; invalid candidates must not stop fallback.
+function resolveIconUrl(raw, base) {
+  if (typeof raw !== "string" || !raw.trim() || raw.trim().startsWith("#")) return null;
+  try {
+    const url = new URL(raw.trim(), base);
+    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) return null;
+    return url.href;
+  } catch {
+    return null;
+  }
+}
+
+function getIcons(document, pageUrl) {
+  const base = resolveIconUrl(document.baseURI, pageUrl) || pageUrl;
+  const candidates = [];
+  for (const el of document.querySelectorAll("link[rel][href]")) {
+    const rel = el.getAttribute("rel").toLowerCase().split(/\s+/);
+    const priority = rel.includes("apple-touch-icon") ? 0
+      : rel.includes("apple-touch-icon-precomposed") ? 1
+      : rel.includes("icon") ? 2
+      : rel.includes("mask-icon") ? 3 : -1;
+    if (!el.getAttribute("rel").toLowerCase().includes("icon")) continue;
+    const src = resolveIconUrl(el.getAttribute("href"), base);
+    if (!src) continue;
+    const icon = { src };
+    for (const key of ["sizes", "type", "media"]) {
+      const value = el.getAttribute(key)?.trim();
+      if (value) icon[key] = value;
+    }
+    candidates.push({ priority, icon, mask: rel.includes("mask-icon") });
+  }
+  // Keep document order for equal ranks and the final link fallback.
+  const regular = candidates.filter(({ mask }) => !mask);
+  // Mask icons are monochrome assets: use them only when no other icon exists.
+  const usable = regular.length ? regular : candidates;
+  const icons = usable.map(({ icon }) => icon);
+  const fallback = usable.find(({ priority }) => priority >= 0)?.icon || icons[0];
+  const data = {};
+  if (icons.length) {
+    const selectSize = (sizes) => {
+      for (const size of sizes) {
+        const match = icons.find((icon) =>
+          (icon.sizes || "").toLowerCase().split(/\s+/).includes(size));
+        if (match) return match.src;
+      }
+      return fallback.src;
+    };
+    const ico = icons.find((icon) =>
+      new URL(icon.src).pathname.toLowerCase().endsWith("/favicon.ico"));
+    data.favicon = ico?.src || selectSize(["32x32", "48x48", "16x16", "180x180", "192x192"]);
+    data.appicon = selectSize(["192x192", "180x180", "512x512", "48x48", "32x32", "16x16"]);
+    const preferred = candidates.filter(({ priority }) => priority >= 0)
+      .sort((a, b) => a.priority - b.priority)[0];
+    if (preferred) return { icon: preferred.icon.src, ...data };
+  }
+
+  const metas = [...document.querySelectorAll("meta[content]")];
+  for (const name of ["og:image", "og:image:url", "twitter:image", "twitter:image:src", "msapplication-TileImage"]) {
+    for (const el of metas) {
+      const matches = [el.getAttribute("property"), el.getAttribute("name")]
+        .some((value) => value?.trim().toLowerCase() === name.toLowerCase());
+      if (!matches) continue;
+      const icon = resolveIconUrl(el.getAttribute("content"), base);
+      if (icon) return { icon, ...data };
+    }
+  }
+  return data;
+}
+
 function getInfo(link, html, callback) {
   try {
     const data = {};
-    let title, icon, desc;
-    const { document } = new JSDOM(html).window;
+    let title, desc;
+    const { document } = new JSDOM(html, { url: link }).window;
 
     // title
     let elTitle = document.querySelector("title");
@@ -303,45 +372,7 @@ function getInfo(link, html, callback) {
       data.desc = desc;
     }
 
-    // icon
-    let elIcon = document.querySelector('head link[rel="apple-touch-icon"]');
-    if (!elIcon) {
-      elIcon = document.querySelector('head link[rel="icon"]');
-    }
-    if (elIcon) {
-      icon = elIcon.getAttribute("href");
-    } else {
-      elIcon = document.querySelector('head meta[property="og:image"]');
-      if (!elIcon) {
-        elIcon = document.querySelector('head meta[property="twitter:image"]');
-      }
-      if (elIcon) {
-        icon = elIcon.content;
-      }
-    }
-
-    if (/^data:image/.test(icon)) {
-      icon = "";
-    }
-
-    // If there is no icon then get the site icon
-    if (!icon) {
-      const links = [].slice.call(document.querySelectorAll("link[rel][href]"));
-      elIcon = links.find((_el) => _el.rel.includes("icon"));
-      icon = elIcon && elIcon.getAttribute("href");
-    }
-
-    // Resolve relative, protocol-relative and absolute icons against the page URL.
-    if (icon) {
-      try {
-        icon = new URL(icon, link).href;
-      } catch {
-        icon = "";
-      }
-    }
-    if (icon) {
-      data.icon = icon;
-    }
+    Object.assign(data, getIcons(document, link));
 
     callback(data);
   } catch (error) {
